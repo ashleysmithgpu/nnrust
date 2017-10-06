@@ -1,0 +1,9 @@
+[package]
+name = "nnrustmnist"
+version = "0.1.0"
+authors = ["Ashley Smith <ashleysmithgpu@gmail.com>"]
+
+[dependencies]
+byteorder = "1.1.0"
+rand = "0.3"
+nix = "0.9.0"
