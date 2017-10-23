@@ -12,12 +12,12 @@ use nix::sys::signal;
 
 extern crate rand;
 
-use rand::{thread_rng, sample};
+use rand::{thread_rng};
 use rand::distributions::{IndependentSample, Range};
 
 extern crate byteorder;
 
-use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
+use byteorder::{ReadBytesExt, BigEndian};
 
 static EXIT_NOW: AtomicBool = ATOMIC_BOOL_INIT;
 
@@ -37,13 +37,11 @@ fn load_images_from_file(filename: &str) -> Option<(u32,u32,Vec<Vec<u8>>)> {
 
 	let mut training_images_file = File::open(filename).expect(&format!("Could not open {}", filename));
 
-	{
-		let images_magic = training_images_file.read_u32::<BigEndian>().unwrap();
-		if images_magic != 0x00000803 {
+	let images_magic = training_images_file.read_u32::<BigEndian>().unwrap();
+	if images_magic != 0x00000803 {
 
-			println!("Corrupt {} file, magic was {}", filename, images_magic);
-			return None;
-		}
+		println!("Corrupt {} file, magic was {}", filename, images_magic);
+		return None;
 	}
 
 	let num_training_images = training_images_file.read_u32::<BigEndian>().unwrap();
@@ -53,7 +51,6 @@ fn load_images_from_file(filename: &str) -> Option<(u32,u32,Vec<Vec<u8>>)> {
 	println!("Found {} training images {}x{}", num_training_images, image_x, image_y);
 
 	let mut image_data: Vec<Vec<u8>> = vec![vec![0; (image_x * image_y) as usize]; num_training_images as usize];
-
 	for item_index in 0..num_training_images {
 
 		training_images_file.read_exact(&mut image_data[item_index as usize]).unwrap();
@@ -67,13 +64,11 @@ fn load_labels_from_file(filename: &str) -> Option<Vec<u8>> {
 
 	let mut training_labels_file = File::open(filename).expect(&format!("Could not open {}", filename));
 
-	{
-		let labels_magic = training_labels_file.read_u32::<BigEndian>().unwrap();
-		if labels_magic != 0x00000801 {
+	let labels_magic = training_labels_file.read_u32::<BigEndian>().unwrap();
+	if labels_magic != 0x00000801 {
 
-			println!("Corrupt {} file, magic was {}", filename, labels_magic);
-			return None;
-		}
+		println!("Corrupt {} file, magic was {}", filename, labels_magic);
+		return None;
 	}
 
 	let num_training_labels = training_labels_file.read_u32::<BigEndian>().unwrap();
@@ -90,12 +85,34 @@ fn load_labels_from_file(filename: &str) -> Option<Vec<u8>> {
 	return Some(labels);
 }
 
+// Activation functions
+fn sigmoid(input: f32) -> f32 {
+
+	return 1.0 / (1.0 + (-input).exp());
+}
+
+fn sigmoid_derivative(input: f32) -> f32 {
+
+	return input * (1.0 - input);
+}
+
+fn relu(input: f32) -> f32 {
+
+	return input.max(0.0);
+}
+
+fn relu_derivative(input: f32) -> f32 {
+
+	return if input > 0.0 { 1.0 } else { 0.0 };
+}
+
 fn main() {
 
 	// Run function on ctrl+c
-    let sig_action = signal::SigAction::new(signal::SigHandler::Handler(early_exit), signal::SaFlags::empty(), signal::SigSet::empty());
-    unsafe { signal::sigaction(signal::SIGINT, &sig_action); }
-    unsafe { signal::sigaction(signal::SIGTERM, &sig_action); }
+	let sig_action = signal::SigAction::new(signal::SigHandler::Handler(early_exit), signal::SaFlags::empty(), signal::SigSet::empty());
+	unsafe { signal::sigaction(signal::SIGINT, &sig_action).unwrap(); }
+	unsafe { signal::sigaction(signal::SIGTERM, &sig_action).unwrap(); }
+	let mut rng = thread_rng();
 
 	let training_images = load_images_from_file("train-images-idx3-ubyte").unwrap();
 	let image_x = training_images.0;
@@ -110,15 +127,13 @@ fn main() {
 	let image_data: Vec<Vec<u8>> = training_images.2;
 	let labels: Vec<u8> = training_labels;
 
-	let mut rng = thread_rng();
-
 	let learning_rate: f32 = env::args().nth(1).expect("Expecting argument").parse::<f32>().ok().expect("Expecting f32");
 
 	// One layer network
 	// Vec<: neurons
 	// 	f32: neuron activation
 	// 	Vec<: weights
-	// 		f32: weights from each input neuron
+	// 		f32: weight from each input neuron
 	let mut layer: Vec<(f32, Vec<f32>)> = vec![(0.0, vec![0.0; 28*28]); 10];
 
 	// Initialise the weights with random values 0..1

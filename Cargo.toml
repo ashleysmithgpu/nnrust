@@ -3,6 +3,14 @@ name = "nnrustmnist"
 version = "0.1.0"
 authors = ["Ashley Smith <ashleysmithgpu@gmail.com>"]
 
+[[bin]]
+name = "one_layer"
+path = "src/one_layer.rs"
+
+[[bin]]
+name = "two_layer"
+path = "src/two_layer.rs"
+
 [dependencies]
 byteorder = "1.1.0"
 rand = "0.3"
