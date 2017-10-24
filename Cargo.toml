@@ -11,6 +11,10 @@ path = "src/one_layer.rs"
 name = "two_layer"
 path = "src/two_layer.rs"
 
+[[bin]]
+name = "three_layer"
+path = "src/three_layer.rs"
+
 [dependencies]
 byteorder = "1.1.0"
 rand = "0.3"

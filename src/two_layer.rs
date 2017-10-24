@@ -189,7 +189,7 @@ fn main() {
 				}
 
 				n.0 /= n.1.len() as f32;
-				n.0 = sigmoid(n.0);
+				n.0 = relu(n.0);
 			}
 
 			for (i,n) in &mut layer2.iter_mut().enumerate() {
@@ -201,14 +201,14 @@ fn main() {
 				}
 
 				n.0 /= n.1.len() as f32;
-				n.0 = sigmoid(n.0);
+				n.0 = relu(n.0);
 			}
 
 			// Feed backwards
 			for (i,n) in &mut layer2.iter_mut().enumerate() {
 
 				let err = if i == label as usize { 1.0 } else { 0.0 } - n.0;
-				let error_signal = err * sigmoid_derivative(n.0);
+				let error_signal = err * relu_derivative(n.0);
 
 				for (j,w) in &mut n.1.iter_mut().enumerate() {
 
@@ -224,12 +224,12 @@ fn main() {
 				for (j,n2) in &mut layer2.iter_mut().enumerate() {
 
 					let err = if j == label as usize { 1.0 } else { 0.0 } - n2.0;
-					let error_signal = err * sigmoid_derivative(n2.0);
+					let error_signal = err * relu_derivative(n2.0);
 
 					errsum += error_signal * n2.1[i];
 				}
 
-				errsum *= sigmoid_derivative(n.0);
+				errsum *= relu_derivative(n.0);
 
 				for (j,w) in &mut n.1.iter_mut().enumerate() {
 
@@ -239,7 +239,7 @@ fn main() {
 				layer1_bias[i] += learning_rate * errsum;
 			}
 
-			// Find highest activated neuron
+			// Find highest activated neuron ("soft" max)
 			let mut highest_activation = (-10000.0, 0);
 			for (i, n) in layer2.iter().enumerate() {
 
@@ -310,7 +310,7 @@ fn main() {
 
 			n.0 /= n.1.len() as f32;
 
-			n.0 = sigmoid(n.0);
+			n.0 = relu(n.0);
 		}
 
 		for (i,n) in &mut layer2.iter_mut().enumerate() {
@@ -324,9 +324,10 @@ fn main() {
 
 			n.0 /= n.1.len() as f32;
 
-			n.0 = sigmoid(n.0);
+			n.0 = relu(n.0);
 		}
 
+		// Find highest activated neuron ("soft" max)
 		let mut highest_activation = (-10000.0, 0);
 		for (i, n) in layer2.iter().enumerate() {
 
@@ -358,7 +359,7 @@ fn main() {
 
 						0 => " ",
 						1..128 => "░",
-						129..254 => "▒",
+						129..250 => "▒",
 						_ => "▓"
 					};
 					print!("{}", output);

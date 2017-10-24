@@ -12,7 +12,7 @@ use nix::sys::signal;
 
 extern crate rand;
 
-use rand::{thread_rng};
+use rand::{StdRng, SeedableRng};
 use rand::distributions::{IndependentSample, Range};
 
 extern crate byteorder;
@@ -85,13 +85,39 @@ fn load_labels_from_file(filename: &str) -> Option<Vec<u8>> {
 	return Some(labels);
 }
 
+// Activation functions
+fn sigmoid(input: f32) -> f32 {
+
+	return 1.0 / (1.0 + (-input).exp());
+}
+
+fn sigmoid_derivative(input: f32) -> f32 {
+
+	return input * (1.0 - input);
+}
+
+fn relu(input: f32) -> f32 {
+
+	return input.max(0.0);
+}
+
+#[inline(always)]
+fn relu_derivative(input: f32) -> f32 {
+
+	return if input > 0.0 { 1.0 } else { 0.0 };
+}
+
 fn main() {
+
+	let learning_rate: f32 = env::args().nth(1).expect("Expecting argument").parse::<f32>().ok().expect("Expecting f32");
+	let seed_num: usize = env::args().nth(2).expect("Expecting argument").parse::<usize>().ok().expect("Expecting usize");
 
 	// Run function on ctrl+c
 	let sig_action = signal::SigAction::new(signal::SigHandler::Handler(early_exit), signal::SaFlags::empty(), signal::SigSet::empty());
 	unsafe { signal::sigaction(signal::SIGINT, &sig_action).unwrap(); }
 	unsafe { signal::sigaction(signal::SIGTERM, &sig_action).unwrap(); }
-	let mut rng = thread_rng();
+	let seed: &[_] = &[seed_num];
+	let mut rng: StdRng = SeedableRng::from_seed(seed);
 
 	let training_images = load_images_from_file("train-images-idx3-ubyte").unwrap();
 	let image_x = training_images.0;
@@ -106,22 +132,47 @@ fn main() {
 	let image_data: Vec<Vec<u8>> = training_images.2;
 	let labels: Vec<u8> = training_labels;
 
-	let learning_rate: f32 = env::args().nth(1).expect("Expecting argument").parse::<f32>().ok().expect("Expecting f32");
-
-	// One layer network
 	// Vec<: neurons
 	// 	f32: neuron activation
 	// 	Vec<: weights
 	// 		f32: weight from each input neuron
-	let mut layer: Vec<(f32, Vec<f32>)> = vec![(0.0, vec![0.0; 28*28]); 10];
+	let mut layer1: Vec<(f32, Vec<f32>)> = vec![(0.0, vec![0.0; 28*28]); 128];
+	let mut layer1_bias = vec![0.0; 128];
+	let mut layer2: Vec<(f32, Vec<f32>)> = vec![(0.0, vec![0.0; 128]); 64];
+	let mut layer2_bias = vec![0.0; 64];
+	let mut layer3: Vec<(f32, Vec<f32>)> = vec![(0.0, vec![0.0; 64]); 10];
+	let mut layer3_bias = vec![0.0; 10];
 
 	// Initialise the weights with random values 0..1
 	let weights_range = Range::new(0.0, 1.0);
-	for n in &mut layer {
+	for b in &mut layer1_bias {
+		*b = weights_range.ind_sample(&mut rng);
+	}
+	for n in &mut layer1 {
 		for w in &mut n.1 {
 			*w = weights_range.ind_sample(&mut rng);
 		}
 	}
+	for b in &mut layer2_bias {
+		*b = weights_range.ind_sample(&mut rng);
+	}
+	for n in &mut layer2 {
+		for w in &mut n.1 {
+			*w = weights_range.ind_sample(&mut rng);
+		}
+	}
+	for b in &mut layer3_bias {
+		*b = weights_range.ind_sample(&mut rng);
+	}
+	for n in &mut layer3 {
+		for w in &mut n.1 {
+			*w = weights_range.ind_sample(&mut rng);
+		}
+	}
+
+	// Cache of errors from previous layers
+	let mut layer3_errorsum = vec![0.0; layer2.len()];
+	let mut layer2_errorsum = vec![0.0; layer1.len()];
 
 	let mut training_correct_test_results = 0;
 	let mut training_incorrect_test_results = 0;
@@ -135,39 +186,105 @@ fn main() {
 	//		learning_rate * input * err
 	//	find the highest activation and check if it is correct
 	let mut loop_counter = 0;
+	let mut input = vec![0.0; 28*28];
 	loop {
+
+		training_correct_test_results = 0;
+		training_incorrect_test_results = 0;
 
 		for item_index in 0..num_training_images {
 
 			let label = labels[item_index as usize];
-
 			assert!(image_data[item_index as usize].len() as u32 == image_x * image_y);
 
-			for n in &mut layer {
+			for (i,n) in image_data[item_index as usize].iter().enumerate() {
 
-				n.0 = 0.0;
+				input[i] = f32::from(*n) / 256.0;
+			}
 
-				for (i,w) in &mut n.1.iter().enumerate() {
+			// Feed forward
+			for (i,n) in &mut layer1.iter_mut().enumerate() {
 
-					n.0 += (f32::from(image_data[item_index as usize][i]) / 256.0) * w;
+				n.0 = layer1_bias[i];
+				for (j,w) in &mut n.1.iter().enumerate() {
+
+					n.0 += input[j] * w;
 				}
 
 				n.0 /= n.1.len() as f32;
+				n.0 = relu(n.0);
 			}
 
-			for (i,n) in &mut layer.iter_mut().enumerate() {
+			for (i,n) in &mut layer2.iter_mut().enumerate() {
+
+				n.0 = layer2_bias[i];
+				for (j,w) in &mut n.1.iter().enumerate() {
+
+					n.0 += layer1[j].0 * w;
+				}
+
+				n.0 /= n.1.len() as f32;
+				n.0 = relu(n.0);
+			}
+
+			for (i,n) in &mut layer3.iter_mut().enumerate() {
+
+				n.0 = layer3_bias[i];
+				for (j,w) in &mut n.1.iter().enumerate() {
+
+					n.0 += layer2[j].0 * w;
+				}
+
+				n.0 /= n.1.len() as f32;
+				n.0 = relu(n.0);
+			}
+
+			// Feed backwards
+			for (i,n) in &mut layer3.iter_mut().enumerate() {
 
 				let err = if i == label as usize { 1.0 } else { 0.0 } - n.0;
+				let error_signal = err * relu_derivative(n.0);
 
-				for (i,w) in &mut n.1.iter_mut().enumerate() {
+				for (j,w) in &mut n.1.iter_mut().enumerate() {
 
-					*w += learning_rate * (f32::from(image_data[item_index as usize][i]) / 256.0) * err;
+					*w += learning_rate * layer2[j].0 * error_signal;
+					layer3_errorsum[j] += error_signal * *w;
 				}
+
+				layer3_bias[i] += learning_rate * error_signal;
 			}
 
-			// "soft" max
+			for (i,n) in &mut layer2.iter_mut().enumerate() {
+
+				let mut errsum = layer3_errorsum[i];
+				errsum *= relu_derivative(n.0);
+
+				for (j,w) in &mut n.1.iter_mut().enumerate() {
+
+					*w += learning_rate * layer1[j].0 * errsum;
+					layer2_errorsum[j] += errsum * *w;
+				}
+
+				layer2_bias[i] += learning_rate * errsum;
+			}
+
+			for (i,n) in &mut layer1.iter_mut().enumerate() {
+
+				let mut errsum = layer2_errorsum[i];
+
+				errsum *= relu_derivative(n.0);
+
+				for (j,w) in &mut n.1.iter_mut().enumerate() {
+
+					*w += learning_rate * input[j] * errsum;
+				}
+
+				layer1_bias[i] += learning_rate * errsum;
+			}
+
+			// Find highest activated neuron
 			let mut highest_activation = (-10000.0, 0);
-			for (i, n) in layer.iter().enumerate() {
+			for (i, n) in layer3.iter().enumerate() {
 
 				if n.0 > highest_activation.0 {
 
@@ -221,24 +338,59 @@ fn main() {
 	for item_index in 0..num_testing_images {
 
 		let label = labels[item_index as usize];
-
 		assert!(image_data[item_index as usize].len() as u32 == image_x * image_y);
 
-		for n in &mut layer {
+		for (i,n) in image_data[item_index as usize].iter().enumerate() {
 
-			n.0 = 0.0;
+			input[i] = f32::from(*n) / 256.0;
+		}
 
-			for (i,w) in &mut n.1.iter().enumerate() {
 
-				n.0 += (f32::from(image_data[item_index as usize][i]) / 256.0) * w;
+		// Feed forward
+		for (i,n) in &mut layer1.iter_mut().enumerate() {
+
+			n.0 = layer1_bias[i];
+
+			for (j,w) in &mut n.1.iter().enumerate() {
+
+				n.0 += input[j] * w;
 			}
 
 			n.0 /= n.1.len() as f32;
+
+			n.0 = relu(n.0);
 		}
 
-		// "soft" max
+		for (i,n) in &mut layer2.iter_mut().enumerate() {
+
+			n.0 = layer2_bias[i];
+
+			for (j,w) in &mut n.1.iter().enumerate() {
+
+				n.0 += layer1[j].0 * w;
+			}
+
+			n.0 /= n.1.len() as f32;
+
+			n.0 = relu(n.0);
+		}
+
+		for (i,n) in &mut layer3.iter_mut().enumerate() {
+
+			n.0 = layer3_bias[i];
+
+			for (j,w) in &mut n.1.iter().enumerate() {
+
+				n.0 += layer2[j].0 * w;
+			}
+
+			n.0 /= n.1.len() as f32;
+
+			n.0 = relu(n.0);
+		}
+
 		let mut highest_activation = (-10000.0, 0);
-		for (i, n) in layer.iter().enumerate() {
+		for (i, n) in layer3.iter().enumerate() {
 
 			if n.0 > highest_activation.0 {
 
@@ -268,7 +420,7 @@ fn main() {
 
 						0 => " ",
 						1..128 => "░",
-						129..254 => "▒",
+						129..250 => "▒",
 						_ => "▓"
 					};
 					print!("{}", output);
