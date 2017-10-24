@@ -4,6 +4,7 @@
 use std::env;
 use std::fs::File;
 use std::io::Read;
+use std::time::{Instant};
 use std::sync::atomic::{AtomicBool, Ordering, ATOMIC_BOOL_INIT};
 
 extern crate nix;
@@ -47,12 +48,10 @@ fn load_images_from_file(filename: &str) -> Option<(u32,u32,Vec<Vec<u8>>)> {
 	let num_training_images = training_images_file.read_u32::<BigEndian>().unwrap();
 	let image_x = training_images_file.read_u32::<BigEndian>().unwrap();
 	let image_y = training_images_file.read_u32::<BigEndian>().unwrap();
-
 	println!("Found {} training images {}x{}", num_training_images, image_x, image_y);
 
 	let mut image_data: Vec<Vec<u8>> = vec![vec![0; (image_x * image_y) as usize]; num_training_images as usize];
 	for item_index in 0..num_training_images {
-
 		training_images_file.read_exact(&mut image_data[item_index as usize]).unwrap();
 	}
 
@@ -72,13 +71,10 @@ fn load_labels_from_file(filename: &str) -> Option<Vec<u8>> {
 	}
 
 	let num_training_labels = training_labels_file.read_u32::<BigEndian>().unwrap();
-
 	println!("Found {} training labels", num_training_labels);
 
 	let mut labels: Vec<u8> = vec![0; num_training_labels as usize];
-
 	for item_index in 0..num_training_labels {
-
 		labels[item_index as usize] = training_labels_file.read_u8().unwrap();
 	}
 
@@ -87,23 +83,18 @@ fn load_labels_from_file(filename: &str) -> Option<Vec<u8>> {
 
 // Activation functions
 fn sigmoid(input: f32) -> f32 {
-
 	return 1.0 / (1.0 + (-input).exp());
 }
 
 fn sigmoid_derivative(input: f32) -> f32 {
-
 	return input * (1.0 - input);
 }
 
 fn relu(input: f32) -> f32 {
-
 	return input.max(0.0);
 }
 
-#[inline(always)]
 fn relu_derivative(input: f32) -> f32 {
-
 	return if input > 0.0 { 1.0 } else { 0.0 };
 }
 
@@ -170,10 +161,6 @@ fn main() {
 		}
 	}
 
-	// Cache of errors from previous layers
-	let mut layer3_errorsum = vec![0.0; layer2.len()];
-	let mut layer2_errorsum = vec![0.0; layer1.len()];
-
 	let mut training_correct_test_results = 0;
 	let mut training_incorrect_test_results = 0;
 
@@ -187,6 +174,9 @@ fn main() {
 	//	find the highest activation and check if it is correct
 	let mut loop_counter = 0;
 	let mut input = vec![0.0; 28*28];
+
+	let start_training = Instant::now();
+
 	loop {
 
 		training_correct_test_results = 0;
@@ -194,52 +184,45 @@ fn main() {
 
 		for item_index in 0..num_training_images {
 
+			// Get input
 			let label = labels[item_index as usize];
 			assert!(image_data[item_index as usize].len() as u32 == image_x * image_y);
-
 			for (i,n) in image_data[item_index as usize].iter().enumerate() {
-
 				input[i] = f32::from(*n) / 256.0;
 			}
 
 			// Feed forward
 			for (i,n) in &mut layer1.iter_mut().enumerate() {
-
 				n.0 = layer1_bias[i];
 				for (j,w) in &mut n.1.iter().enumerate() {
-
 					n.0 += input[j] * w;
 				}
-
 				n.0 /= n.1.len() as f32;
 				n.0 = relu(n.0);
 			}
 
 			for (i,n) in &mut layer2.iter_mut().enumerate() {
-
 				n.0 = layer2_bias[i];
 				for (j,w) in &mut n.1.iter().enumerate() {
-
 					n.0 += layer1[j].0 * w;
 				}
-
 				n.0 /= n.1.len() as f32;
 				n.0 = relu(n.0);
 			}
 
 			for (i,n) in &mut layer3.iter_mut().enumerate() {
-
 				n.0 = layer3_bias[i];
 				for (j,w) in &mut n.1.iter().enumerate() {
-
 					n.0 += layer2[j].0 * w;
 				}
-
 				n.0 /= n.1.len() as f32;
 				n.0 = relu(n.0);
 			}
 
-			// Feed backwards
+			let mut layer3_errorsum = vec![0.0; layer2.len()];
+			let mut layer2_errorsum = vec![0.0; layer1.len()];
+
+			// Feed backwards using errors and adjusting weights
 			for (i,n) in &mut layer3.iter_mut().enumerate() {
 
 				let err = if i == label as usize { 1.0 } else { 0.0 } - n.0;
@@ -282,24 +265,19 @@ fn main() {
 				layer1_bias[i] += learning_rate * errsum;
 			}
 
-			// Find highest activated neuron
+			// Find highest activated neuron "soft" max
 			let mut highest_activation = (-10000.0, 0);
 			for (i, n) in layer3.iter().enumerate() {
-
 				if n.0 > highest_activation.0 {
-
 					highest_activation.0 = n.0;
 					highest_activation.1 = i;
 				}
 			}
 
 			assert!(highest_activation.1 < 10);
-
 			if highest_activation.1 as u8 == label {
-
 				training_correct_test_results += 1;
 			} else {
-
 				training_incorrect_test_results += 1;
 			}
 		}
@@ -308,8 +286,13 @@ fn main() {
 		}
 		loop_counter += 1;
 
-		println!("Tests passed: {}, tests failed: {} ({}%), {} epochs", training_correct_test_results, training_incorrect_test_results, training_correct_test_results as f32 / ((training_correct_test_results + training_incorrect_test_results) as f32) * 100.0, loop_counter);
+		println!("Tests passed: {}, tests failed: {} ({}%), {} epochs", training_correct_test_results,
+			training_incorrect_test_results,
+			training_correct_test_results as f32 /
+				((training_correct_test_results + training_incorrect_test_results) as f32) * 100.0, loop_counter);
 	}
+
+	let training_time = start_training.elapsed();
 
 	println!("Using testing data set");
 
@@ -329,6 +312,8 @@ fn main() {
 	let mut correct_test_results = 0;
 	let mut incorrect_test_results = 0;
 
+	let start_testing = Instant::now();
+
 	// Testing trained network
 	// Loop through the testing images
 	//	print out the number
@@ -337,87 +322,63 @@ fn main() {
 	//	find the highest activation neuron and test against what the result should be
 	for item_index in 0..num_testing_images {
 
+		// Get input
 		let label = labels[item_index as usize];
 		assert!(image_data[item_index as usize].len() as u32 == image_x * image_y);
-
 		for (i,n) in image_data[item_index as usize].iter().enumerate() {
-
 			input[i] = f32::from(*n) / 256.0;
 		}
 
 
 		// Feed forward
 		for (i,n) in &mut layer1.iter_mut().enumerate() {
-
 			n.0 = layer1_bias[i];
-
 			for (j,w) in &mut n.1.iter().enumerate() {
-
 				n.0 += input[j] * w;
 			}
-
 			n.0 /= n.1.len() as f32;
-
 			n.0 = relu(n.0);
 		}
 
 		for (i,n) in &mut layer2.iter_mut().enumerate() {
-
 			n.0 = layer2_bias[i];
-
 			for (j,w) in &mut n.1.iter().enumerate() {
-
 				n.0 += layer1[j].0 * w;
 			}
-
 			n.0 /= n.1.len() as f32;
-
 			n.0 = relu(n.0);
 		}
 
 		for (i,n) in &mut layer3.iter_mut().enumerate() {
-
 			n.0 = layer3_bias[i];
-
 			for (j,w) in &mut n.1.iter().enumerate() {
-
 				n.0 += layer2[j].0 * w;
 			}
-
 			n.0 /= n.1.len() as f32;
-
 			n.0 = relu(n.0);
 		}
 
+		// Find highest activated neuron "soft" max
 		let mut highest_activation = (-10000.0, 0);
 		for (i, n) in layer3.iter().enumerate() {
-
 			if n.0 > highest_activation.0 {
-
 				highest_activation.0 = n.0;
 				highest_activation.1 = i;
 			}
 		}
 
 		assert!(highest_activation.1 < 10);
-
 		if highest_activation.1 as u8 == label {
-
 			correct_test_results += 1;
 			println!("Test passed {} == {}", highest_activation.1 as u8, label);
 		} else {
-
 			incorrect_test_results += 1;
 			println!("Test failed {} != {}", highest_activation.1 as u8, label);
 
 			for y in 0..image_y {
-
 				for x in 0..image_x {
-
 					let value = image_data[item_index as usize][(y * image_x + x) as usize];
-
 					let output = match value {
-
 						0 => " ",
 						1..128 => "░",
 						129..250 => "▒",
@@ -430,5 +391,13 @@ fn main() {
 		}
 	}
 
-	println!("Tests passed: {}, tests failed: {} ({}%) with {} epochs training ({}% training)", correct_test_results, incorrect_test_results, correct_test_results as f32 / ((correct_test_results + incorrect_test_results) as f32) * 100.0, loop_counter, training_correct_test_results as f32 / ((training_correct_test_results + training_incorrect_test_results) as f32) * 100.0);
+	let testing_time = start_testing.elapsed();
+
+	println!("Tests passed: {}, tests failed: {} ({}%) with {} epochs training ({}% training)", correct_test_results,
+		incorrect_test_results,
+		correct_test_results as f32 / ((correct_test_results + incorrect_test_results) as f32) * 100.0, loop_counter,
+		training_correct_test_results as f32 / ((training_correct_test_results + training_incorrect_test_results) as f32) * 100.0);
+	println!("Training time {}s, testing time {}s",
+		(training_time.as_secs() as f64) + (training_time.subsec_nanos() as f64 / 1000_000_000.0),
+		(testing_time.as_secs() as f64) + (testing_time.subsec_nanos() as f64 / 1000_000_000.0));
 }
