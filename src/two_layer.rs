@@ -1,6 +1,4 @@
 
-#![feature(exclusive_range_pattern)]
-
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -358,8 +356,8 @@ fn main() {
 					let output = match value {
 
 						0 => " ",
-						1..128 => "░",
-						129..250 => "▒",
+						1...128 => "░",
+						129...250 => "▒",
 						_ => "▓"
 					};
 					print!("{}", output);

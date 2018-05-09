@@ -3,6 +3,22 @@ Quick and dirty neural network implementation for the [MNIST db](http://yann.lec
 
 I'm learning both Rust and Machine Learning, so you probably don't want to use this code :)
 
+## Building
+
+	cargo build
+
+## Running
+
+Download the MNIST data:
+	wget http://yann.lecun.com/exdb/mnist/train-images-idx3-ubyte.gz
+	wget http://yann.lecun.com/exdb/mnist/train-labels-idx1-ubyte.gz
+	wget http://yann.lecun.com/exdb/mnist/t10k-images-idx3-ubyte.gz
+	wget http://yann.lecun.com/exdb/mnist/t10k-labels-idx1-ubyte.gz
+	gunzip *.gz
+	# Probably want to use release, 0.01 is learning rate
+	# lower learning rate is more accurate but slower
+	cargo run --release --bin one_layer -- 0.01
+
 ## Meanings
 
 * **Neuron**: Holds a value (it's acitvation) and is attached to 0 or more other neurons. Each connection has a weight.
